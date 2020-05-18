@@ -4,4 +4,4 @@ This repository consists of the code behind our final project for Distributed Co
 The contributors to this project are Manda Bucklin, Nate Wagner, Dominic Ventura, and Ashley Brockway. 
 
 # Results
-Our results can be viewed [here](https://github.com/dominicventura19/FacebookPoliticalAdsAnalysis/blob/master/main%20(1).html).
+Our results can be viewed [here](https://htmlpreview.github.io/?https://github.com/dominicventura19/FacebookPoliticalAdsAnalysis/blob/master/main%20(1).html).
