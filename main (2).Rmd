@@ -1,0 +1,611 @@
+---
+title: " "
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+# **Facebook Political Ads Analysis**  
+
+### New College of Florida  
+
+#### *Ashley Brockway, Dominic Ventura, Manda Bucklin, Nate Wagner*
+
+
+<br>
+<br>
+
+### Summary 
+
+The Facebook Policial Ad data comes from [propublica.org](https://www.propublica.org/datastore/dataset/political-advertisements-from-facebook). ProPublica states, "This database, updated daily, contains ads that ran on Facebook and were submitted by thousands of ProPublica users from around the world. We asked our readers to install browser extensions that automatically collected advertisements on their Facebook pages and sent them to our servers. We then used a machine learning classifier to identify which ads were likely political and included them in this dataset."
+
+### Creation of Political Issue Variable & Assumptions
+
+To label an ad to a political issue, we went with the main cateories [from this website](https://www.isidewith.com/polls). We then built word banks for each category, which can be [found here](https://github.com/natewagner10/Distributed-Computing-Facebook-Ads/blob/master/word_banks).
+The political issue with the highest term count, we label as that particular issue. We assume that if an ad message mentions these terms from the word banks, it must be true that ad is associated with that particular issue.  
+
+The word bank approach allowed us to "label" ads, and thus create a training dataset in which we can use to train a model to classify the rest of the ads.
+
+The training set consisted of 89,152 ads. Here we can see the frequencies of each political issue accross the training data.
+
+<br>
+ 
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.height = 6, fig.width = 10}
+library(tidyverse)
+train <- read.csv("training_dataset.csv")
+train$label <- as.factor(train$label) 
+levels(train$label) <- c("immigration", "healthcare", "economic", "environment", "social", "foreign", "criminal", "electoral", "science", "education", "domestic")
+
+ad_cnt <- train %>% select(label) %>% group_by(label) %>% count() %>% mutate(perc = round((n/nrow(train))*100, 2))
+
+ad_cnt$label <- fct_relevel(ad_cnt$label, c("electoral", "healthcare", "economic", "social", "environment", "domestic", "immigration", "science", "education", "foreign", "criminal"))
+
+
+
+p <- ggplot(ad_cnt, aes(label, perc, fill = label)) +
+        geom_bar(stat = "identity") +
+        scale_fill_hue(c = 40) + 
+        theme_bw() +
+        theme(legend.position="none", axis.text.x = element_text(angle=45, vjust=0.6)) +
+        scale_y_continuous(expand = c(0,0), limit = c(0, 16)) +
+        labs(y = "Percent %", x = "Ad Category", title = "Training Set - Political Issues Frequencies")
+p
+
+```
+
+
+We then fit a logistic regression classifier which performed very well on the test set, that consisted of 30% of the training data. The model was about 93% accurate in classifying the test ads. 
+
+<br>
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.height = 6, fig.width = 10}
+library(caret)
+preds <- read.csv("preds_test.csv")
+#mean(preds$label == preds$prediction)
+
+
+preds$label = as.factor(preds$label)
+preds$prediction = as.factor(preds$prediction)
+
+levels(preds$label) <- c("immigration", "healthcare", "economic", "environment", "social", "foreign", "criminal", "electoral", "science", "education", "domestic")
+
+levels(preds$prediction) <- c("immigration", "healthcare", "economic", "environment", "social", "foreign", "criminal", "electoral", "science", "education", "domestic")
+
+#table(preds$label, preds$prediction)
+cm <- confusionMatrix(preds$label, preds$prediction)
+
+confusion_matrix <- as.data.frame(table(preds$prediction, preds$label))
+
+ggplot(confusion_matrix, aes(x = Var1, y = Var2)) +
+  geom_tile(aes(fill = Freq)) +
+  geom_text(aes(label = sprintf("%1.0f", Freq)), vjust = 1) +
+  scale_fill_gradient(low = "lightblue",
+                      high = "red",
+                      trans = "log") +
+  theme_bw() + 
+  theme(axis.text.x = element_text(angle=45, vjust=0.6), legend.position="none") + 
+  labs(title = "Confusion Matrix:  Accuracy: 92.9%", x = "Predicted", y = "Actual")
+  
+```
+
+<br>
+
+Under the assumption that every Facebook political ad in the dataset falls under one of these categories, we then took the model and classified the remaning "unlabed" ads that were not included in the training dataset, which consisted of an additional 74,962 ads. It is very important to keep in mind that because our training data was not chosen "randomlly", there could be differences between the training data and the remaining ads. 
+
+<br> 
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.height = 6, fig.width = 10}
+others <- read_csv("other_with_labels.csv")
+others$prediction <- as.factor(others$prediction)
+levels(others$prediction) <- c("immigration", "healthcare", "economic", "environment", "social", "foreign", "criminal", "electoral", "science", "education", "domestic")
+
+ad_cnt_other <- others %>% select(prediction) %>% group_by(prediction) %>% count() %>% mutate(perc = round((n/nrow(others))*100, 2))
+
+ad_cnt_other$prediction <- fct_relevel(ad_cnt_other$prediction, c("electoral", "healthcare", "economic", "social", "environment", "domestic", "immigration", "science", "education", "foreign", "criminal"))
+
+ad_cnt_other$Data <- "Not in Training Data"
+ad_cnt_other$label <- ad_cnt_other$prediction
+ad_cnt_other <- as.data.frame(ad_cnt_other) %>% select(-prediction)
+ad_cnt$Data <- "Training Data"
+
+ad_cnt_all <- rbind(ad_cnt_other, as.data.frame(ad_cnt))
+
+ggplot(ad_cnt_all, aes(label, perc, fill = Data)) +
+        geom_bar(stat = "identity", position = "dodge") +
+        scale_fill_hue(c = 40) + 
+        theme_bw() +
+        theme(axis.text.x = element_text(angle=45, vjust=0.6)) +
+        scale_y_continuous(expand = c(0,0), limit = c(0, 23)) +
+        labs(y = "Percent %", x = "Ad Category", title = "Ads Not In Training Data vs Training Data - Political Issues Frequencies")
+```
+
+The frequencies of political issues seem to be very similar between the labeled training data and the output of the classifier on the remaining ads. Given our assumptions and the results of the model, we believe these labels are representative of the ads true political issue label. 
+
+<br>
+<br>
+
+### How Have Political Facebook Ads Changed Over Time?
+
+
+```{r include=FALSE}
+library(tidyverse)
+ad <- read.csv("all_data_labeled_final.csv")
+ad <- ad %>% select(-X)
+colnames(ad) <- c("paid_for_by", "label", "neg", "neu", "pos", "sentiment", "month", "day", "year", "target")
+ad$date <- as.Date(with(ad, paste(year, month, day,sep="-")), "%Y-%m-%d")
+```
+
+
+<br>
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.height = 6, fig.width = 10}
+library(RColorBrewer)
+library(lubridate)
+ad_ByMonth <- ad %>% select(label, date) %>% group_by(year(date), month(date)) %>% count()
+
+ad_ByMonth$date <- paste(ad_ByMonth$`month(date)`, ad_ByMonth$`year(date)`, sep = "-")
+ad_ByMonth <- ad_ByMonth %>% filter(`year(date)` != 2021)
+
+ad_ByMonth$date <- fct_relevel(as.factor(ad_ByMonth$date), c("7-2017", "8-2017", "9-2017", "10-2017", "11-2017", "12-2017", "1-2018", "2-2018", "3-2018", "4-2018", "5-2018", "6-2018", "7-2018", "8-2018", "9-2018", "10-2018", "11-2018", "12-2018", "1-2019", "2-2019", "3-2019", "4-2019", "5-2019"))
+
+ggplot(ad_ByMonth, aes(date, n, group = 1)) +
+  geom_point() +
+  geom_line(stat = "identity") +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle=45, vjust=0.6)) +
+  labs(x = "Date", y = "Count", title = "Total Political Facebook Ads Per Month From July 2017 to May 2019")
+```
+
+Given that these Facebook ads were collected from Pro Publica users, we have to keep in mind that could be influencing the true trend of Facebook ad frequencies overtime. However, from the data we have there is a huge peak right before Midterm Elections in 2018, followed by a big decline. 
+
+<br>
+
+### What Underlying Factors Are Driving This Trend?
+
+<br>
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.height = 6, fig.width = 10}
+ad_ByMonth_cat <- ad %>% select(label, date) %>% group_by(label, year(date), month(date)) %>% count()
+ad_ByMonth_cat$date <- paste(ad_ByMonth_cat$`month(date)`, ad_ByMonth_cat$`year(date)`, sep = "-")
+ad_ByMonth_cat <- ad_ByMonth_cat %>% filter(`year(date)` != 2021)
+
+ad_ByMonth_cat$date <- as.factor(ad_ByMonth_cat$date)
+ad_ByMonth_cat$date <- fct_relevel(as.factor(ad_ByMonth_cat$date), c("7-2017", "8-2017", "9-2017", "10-2017", "11-2017", "12-2017", "1-2018", "2-2018", "3-2018", "4-2018", "5-2018", "6-2018", "7-2018", "8-2018", "9-2018", "10-2018", "11-2018", "12-2018", "1-2019", "2-2019", "3-2019", "4-2019", "5-2019"))
+
+p_line <- ggplot(ad_ByMonth_cat, aes(date, n, color = label, group = label)) +
+                geom_point() +
+                geom_line(stat = "identity") +
+                theme_bw() +
+                theme(axis.text.x = element_text(angle=45, vjust=0.6)) +
+                labs(x = "Date", y = "Count", title = "Total Political Facebook Ads Per Month From July 2017 to May 2019")
+                
+p_line + scale_color_brewer(palette="Set3")
+
+p_log <- ggplot(ad_ByMonth_cat, aes(date, log(n), color = label, group = label)) +
+  geom_point() +
+  geom_line(stat = "identity") +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle=45, vjust=0.6), legend.title = element_text("Political Issue")) +
+  labs(x = "Date", y = "Log Count", title = "Total Political Facebook Ads Per Month From July 2017 to May 2019")
+```
+
+The political issues driving this trend seem to be electoral, healthcare, social and domestic related ads. 
+
+<br>
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.height = 6, fig.width = 10}
+dates <-c("4-2018", "10-2018")
+perc_gains <- ad_ByMonth_cat %>%
+  filter(date %in% dates) %>%
+  group_by(label) %>%
+  mutate(growth = ((n - lag(n)) / lag(n))*100) %>%
+  filter(is.na(growth) == FALSE)
+
+perc_gains$label <- fct_relevel(perc_gains$label, c("electoral", "healthcare", "criminal", "immigration", "economic", "social", "education","domestic", "science", "environment", "foreign"))
+
+ggplot(perc_gains, aes(label, growth, fill = label)) + geom_bar(stat = "identity") + scale_fill_brewer(palette="Set3") +
+  theme_bw() +
+  scale_y_continuous(expand = c(0,0), limit = c(0, 1250)) +
+  labs(title = "Percent Ad Growth From April Leading Up To Midterms November 2018", x = "", y = "Percent %") +
+  theme(legend.position = "none", axis.text.x = element_text(angle=45, vjust=0.6)) +
+  annotate("text", x = c("electoral", "healthcare", "criminal", "immigration", "economic", "social", "education","domestic", "science", "environment", "foreign"), y = c(1095, 907, 764, 741, 707, 648, 655, 588, 443, 303, 106) + 30, label = c("1095%", "907%", "764%", "741%", "707%", "648%", "655%", "588%", "443%", "303%", "106%"))
+```
+
+Then looking at the percentage increases in political issues from April leading up to elections, there were large up ticks electoral, healthcare, criminal, immigration and economic related ads. 
+
+<br>
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.height = 6, fig.width = 10}
+perc_gains <- ad %>% select(label, date, paid_for_by) %>% group_by(year(date), month(date), paid_for_by, label) %>% count()
+perc_gains$date <- paste(perc_gains$`month(date)`, perc_gains$`year(date)`, sep = "-")
+perc_gains1 <- perc_gains %>% filter(`year(date)` != 2021)
+dates <-c("7-2018", "10-2018")
+perc_gains2 <- perc_gains1 %>%
+  filter(date %in% dates) %>%
+  group_by(paid_for_by, label) %>%
+  mutate(growth = ((n - lag(n)) / lag(n))*100, growth2 = (n - lag(n))) %>%
+  filter(is.na(growth) == FALSE) %>% arrange(desc(growth2)) %>% head(20)
+
+perc_gains2$x <- paste(perc_gains2$paid_for_by, perc_gains2$label, sep = " - ")
+perc_gains2$x <- as.factor(perc_gains2$x)
+levels(perc_gains2$x) <- c("Beto for Texas - electoral", "Bill Nelson for U.S. Senate - electoral", "Care2 - social", "Clean Air Clean Energy - environment", "Donald J. Trump for President, Inc. - electoral", "Donald J. Trump for President, Inc. - electoral",                      "Donald J. Trump for President, Inc. - social", "Elizabeth for MA - economic",
+                           "Gillibrand for Senate - domestic", "IVN News - healthcare", "Need to Impeach - criminal", 
+                           "Sinema for Arizona - electoral", "the ACLU - criminal", "the ACLU - electoral",
+                           "the Democratic National Committee - electoral", "the Florida Democratic Party - electoral",
+                           "The Nature Conservancy - environment", "the Republican National Committee - electoral", 
+                           "Tony for Wisconsin - electoral", "Working Families Party - electoral" )
+
+perc_gains2$x <- fct_reorder(perc_gains2$x, perc_gains2$growth2)
+
+ggplot(perc_gains2, aes(x, growth2, fill = x)) +
+  geom_bar(stat = "identity") +
+  scale_fill_hue(c=45, l=80) +
+  theme_bw() +
+  scale_y_continuous(expand = c(0,0), limit = c(0, 260)) +
+  theme(legend.position = "none") + coord_flip() +
+  labs(y = "Total Growth (Count)", title = "Facebook Ad Growth From July Leading Up To Midterms", x = "")
+```
+
+Here are the organizations who pushed the most ads by political issue leading up to elections.
+
+<br>
+<br>
+
+### Does the Sentiment of Facebook Political Ads Change With The Seasons?  
+We want to consider whether the distribution of ad sentiments is consitent, or inconsistent across the four seasons. The inspiration for this approach stems from the different way that seasonal shifts impact the type of adverts that individuals are targetted by. To further study the relationship between the seasons and ad sentiment, we first conducted a $\chi^2$ test for dependece between two categorical varaibles. While this test resulted in statistically significant results, allowing us to conclude that the variables are statistically dependent, we wanted to explore the practical association between the two variables. Thus, we explored the poroption of sentiments across seasions to see if there were varying usages of senitments during different seasons, and found no practical evidence of a dependent association between the variables. For this section, all sentiments are recoded into positive, negative, and neutral for visualization purposes.  
+
+<br>  
+
+```{r include=FALSE}
+library(tidyverse)
+ad <- read.csv("all_data_labeled_final.csv")
+ad <- ad %>% select(-X)
+colnames(ad) <- c("paid_for_by", "label", "neg", "neu", "pos", "sentiment", "month", "day", "year", "target")
+ad$date <- as.Date(with(ad, paste(year, month, day,sep="-")), "%Y-%m-%d")
+```
+
+<br>
+
+```{r include = FALSE}
+data <- matrix(c(8029,4302,8658,8891,17152,10390,22390,19729,17223,9389,20688,17282), ncol=4, byrow=T)
+colnames(data) <- c("Winter", "Summer", "Fall", "Spring")
+rownames(data) <- c("negative", "neutral", "positive")
+data <- as.table(data)
+#(chisq.test(data))
+```
+
+<br>
+
+```{r echo = FALSE}
+tab <- round(prop.table(data, margin = 2),2)
+dat <- tibble(sent = c("negative", "neutral", "positive"), winter = c(0.19, 0.40, 0.41), summer = c(0.18, 0.43, 0.39),fall = c(0.17, 0.43, 0.40), spring = c(0.19, 0.43, 0.38))
+library(gt)
+base <- dat %>% 
+  gt(rowname_col = "sent") %>%
+  tab_header(
+    title = md("Proportions Table of Sentiment Given Season")
+  ) %>% 
+  tab_stubhead(label = "Sentiment") %>%
+  fmt_number(columns = vars(winter), decimals = 2) %>% 
+  fmt_number(columns = vars(summer), decimals = 2) %>%
+  fmt_number(columns = vars(fall), decimals = 2) %>%
+  fmt_number(columns = vars(spring), decimals = 2) %>%
+  tab_spanner(label = "Seasons", columns = vars(winter, summer, fall, spring))
+base
+```
+
+<br>
+
+Using the plot of Seasonality of Ad Sentiment, we see that the that all sentiments have very similar distributions across the seasons. The only deviation that is clearly visible is the "Fall negative" bar being smaller than the neutral and positive, however, that can be attested to the relatively low numbers of negative adds making the category less accurate compare to neutral and postive.  
+
+<br>  
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.height = 6, fig.width = 10}
+seasons <- ad %>% 
+  mutate(seasons = ifelse(month %in% c(12, 1,2), "winter", ifelse(month %in% c(3,4,5), "spring", ifelse(month %in% c(6,7,8), "summer", "fall")))) %>%
+  mutate(sentiment = ifelse(sentiment == "somewhat positive", "positive", ifelse(sentiment == "positive", "positive", ifelse(sentiment == "somewhat negative", "negative", ifelse(sentiment == "negative", "negative", "neutral"))))) %>%
+  select(seasons, sentiment)
+ggplot(data = seasons, aes(x = sentiment, fill = seasons )) + geom_bar(aes(y = (..count..)/sum(..count..) * 100), position = "dodge") + 
+  theme_bw() + 
+  scale_y_continuous(expand = c(0,0)) +
+  theme(axis.text.x = element_text(angle=45, vjust=0.6)) +
+  labs(x = "Ad Sentiment", y = "Percent %", title = "Seasonality of Ad Sentiment")
+```
+
+
+<br>
+
+
+### Positive & Negative Sentiment & It's Association With Political Facebook Ads
+
+![](/Users/natewagner/Documents/DistCompAdsProject/Figure_pos.png)  ![](/Users/natewagner/Documents/DistCompAdsProject/Figure_neg2.png)
+
+
+```{r fig.height=6, fig.width=6, message=FALSE, warning=FALSE, include=FALSE}
+library(knitr)
+library(kableExtra)
+pFb <- ad %>% select(paid_for_by) %>% group_by(paid_for_by) %>% count()
+pFb_sort <- pFb %>% arrange(desc(n)) %>% filter(paid_for_by != "na")
+pFb_sort_top <- head(pFb_sort, 50)
+
+kable(pFb_sort_top)
+
+
+pres <- c("Biden for President", "Bernie 2020.", "Warren for President", "Amy for America", "Pete for America", "Bennet for America", "Andrew Yang")
+ad_pres <- ad %>% filter(paid_for_by %in% pres)
+#ad_pres_grouped <- ad_pres %>% select(paid_for_by, category) %>% group_by(paid_for_by, category) %>% count()
+```
+
+<br>
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.height = 6, fig.width = 10}
+ad_cat_sent <- ad
+ad_cat_sent$total_sentiment <- ifelse(ad_cat_sent$sentiment == "somewhat negative" | ad_cat_sent$sentiment == "negative", "negative", 0)
+ad_cat_sent$total_sentiment <- ifelse(ad_cat_sent$sentiment == "somewhat positive" | ad_cat_sent$sentiment == "positive", "positive", "negative")
+ad_cat_sent$total_sentiment[ad_cat_sent$sentiment == "neutral"] <- "neutral"
+ad_cat_sent <- ad_cat_sent %>% select(label, total_sentiment) %>% group_by(label, total_sentiment) %>% count()
+ad_cat_sent <- ad_cat_sent %>% group_by(label) %>% mutate(percent = round((n/sum(n))*100, 2))
+
+
+
+ad_cat_sent$category <- fct_relevel(as.factor(ad_cat_sent$label), c("environment", "science", "healthcare", "immigration", "criminal", "electoral", "economic", "education", "social", "foreign", "domestic"))
+ggplot(ad_cat_sent, aes(category, percent, fill = total_sentiment)) +
+  geom_bar(stat = "identity", position = "dodge", width=.8) +
+  theme_bw() + 
+  scale_fill_hue(c = 40) +
+  scale_y_continuous(expand = c(0,0)) +
+  theme(axis.text.x = element_text(angle=45, vjust=0.6)) +
+  labs(x = "Ad Category", y = "Percent %", title = "Association With Negative & Positive Words")
+
+```
+
+
+<br>
+
+
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.height = 6, fig.width = 10}
+ad_tar2 <- read_csv("ad_class_with_targets_dummy.csv")
+#ad_tar2 %>% filter(women == 1) %>% group_by(label) %>% count()
+#ad_tar2 %>% filter(men == 1) %>% group_by(label) %>% count()
+lib <- ad_tar2 %>% filter(liberal == 1) %>% select(label) %>% group_by(label) %>% count() %>% mutate(perc = round((n/5566)*100, 2))
+cons <- ad_tar2 %>% filter(conservative == 1) %>% select(label) %>% group_by(label) %>% count() %>% mutate(perc = round((n/1121)*100, 2))
+
+lib$party <- "liberal"
+cons$party <- "conservative"
+party_data <- rbind(lib, cons)
+
+ggplot(party_data, aes(label, perc, fill = party)) +
+        geom_bar(stat = "identity", position = "dodge") +
+        scale_fill_hue(c = 40) + 
+        theme_bw() +
+        theme(axis.text.x = element_text(angle=45, vjust=0.6)) +
+        scale_y_continuous(expand = c(0,0), limit = c(0, 35)) +
+        labs(y = "Percent %", x = "Ad Category", title = "Percent of Political Issues In Facebook Ads")
+```
+
+
+
+
+
+<br>
+<br>
+<br>
+
+
+
+##### Women vs Men Ads
+
+<br>
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.height = 6, fig.width = 10}
+library(forcats)
+library(gridExtra)
+ad_women1 <- ad_tar2 %>% filter(ad_tar2$women == "1")
+ad_women <- ad_women1 %>% group_by(label) %>%
+  summarize(count1 = n())
+ad_women$total1 <- sum(ad_women$count1)
+ad_women <- transform(ad_women, perct = count1 / total1)
+ad_men <- ad_tar2 %>% filter(ad_tar2$men == "1")
+ad_men <- ad_men %>% group_by(label) %>%
+  summarize(count1 = n())
+ad_men$total1 <- sum(ad_men$count1)
+ad_men <- transform(ad_men, perct = count1 / total1)
+women <- ad_women %>%
+  mutate(label = fct_reorder(label, count1))
+women$gender <- "women"
+men <- ad_men %>%
+  mutate(label = fct_reorder(label, count1))
+men$gender <- "men"
+totalgender <- rbind(men, women)
+totalgender <- totalgender %>%
+  mutate(label = fct_reorder(label, count1))
+ggplot(totalgender, aes(y=perct, x=label, fill = gender)) + 
+    geom_bar(position="dodge", stat="identity")+ theme(axis.text.x = element_text(angle = 45)) +
+    labs(y = "Percent %", x = "", title = "Percent of Political Ads by Topic",
+         subtitle = "Women vs Men", fill = "Gender:" ) +
+       scale_fill_manual(values=c("men"="dodgerblue3", "women"="hotpink1"), guide="legend") +
+        coord_flip() + theme_bw()
+```
+
+<br>
+
+Considering the plot above, it is clear that certain issues are more gendered than others, at least in terms of ad targetting. Therefore, we want to take a closer look at the ditribution of sentiment for ads in gendered categories like electoral and social (gendered meaning that there is a distinct difference in the number of men and women targeted).  
+
+<br>
+
+For electoral ads we see that men are targeted at a higher rate than they are by ads in general, because the gender distribution between electoral ads is much more even. The evenness indicates that men are more heavily target for electoral ads specifically than they are ads in general. 
+
+<br>
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.height = 6, fig.width = 10}
+library(egg)
+library(ggpubr)
+ad_women1 <- ad_tar2 %>% filter(ad_tar2$women == "1" & label == "electoral") %>% select(-c(X1))
+seasons_electoral <- ad_tar2 %>% 
+  mutate(seasons = ifelse(month %in% c(12, 1,2), "winter", ifelse(month %in% c(3,4,5), "spring", ifelse(month %in% c(6,7,8), "summer", "fall")))) %>%
+  mutate(sentiment = ifelse(sentiment == "somewhat positive", "positive", ifelse(sentiment == "positive", "positive", ifelse(sentiment == "somewhat negative", "negative", ifelse(sentiment == "negative", "negative", "neutral"))))) %>% mutate(gender = ifelse(women == 1, "women", ifelse(men == 1, "men", 0))) %>% filter(gender != 0) %>% filter(label == "electoral") %>% select(sentiment, seasons, gender)
+seasons_women <- ad_tar2 %>% 
+  mutate(seasons = ifelse(month %in% c(12, 1,2), "winter", ifelse(month %in% c(3,4,5), "spring", ifelse(month %in% c(6,7,8), "summer", "fall")))) %>%
+  mutate(sentiment = ifelse(sentiment == "somewhat positive", "positive", ifelse(sentiment == "positive", "positive", ifelse(sentiment == "somewhat negative", "negative", ifelse(sentiment == "negative", "negative", "neutral"))))) %>% mutate(gender = ifelse(women == 1, "women", ifelse(men == 1, "men", 0))) %>% filter(gender != 0) %>% select(sentiment, seasons, gender)
+a <- ggplot(seasons_electoral, aes(x=sentiment, fill=gender)) + geom_bar(aes(y=((..count..) / sum(..count..))*100), position = "dodge") + labs(title = "Electoral Ads", y="Percent %", x="Sentiment", fill="Gender") + scale_y_continuous(expand = c(0,0)) + scale_fill_manual("Gender", values=c("men"="dodgerblue3", "women"="hotpink1")) + theme_classic() 
+b <- ggplot(seasons_women, aes(x=sentiment, fill=gender)) + geom_bar(aes(y=((..count..) / sum(..count..))*100), position = "dodge") + labs(title = "All Ads", y="Percent %", x="Sentiment", fill="Gender") + scale_y_continuous(expand = c(0,0)) + scale_fill_manual("Gender", values=c("men"="dodgerblue3", "women"="hotpink1")) + theme_classic() 
+annotate_figure(ggarrange(a,b, heights = 2), top = text_grob("Comparison of Ads Targeted to Men and Women", face = "bold", size = 14))
+```
+
+<br>
+
+For social ads, we noticed that women were targeted more for them overall, looking at the check, it seems that women are not only targeted more for ads on social issues, but they are targetted more consistently across sentiments that they are across all ad types. It is interesting to consider whether ads are gendered due to notions of the organizations, Facebook, or by the echo chamber found in most social media algorithms.  
+
+<br>
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.height = 6, fig.width = 10}
+seasons_social <- ad_tar2 %>% 
+  mutate(seasons = ifelse(month %in% c(12, 1,2), "winter", ifelse(month %in% c(3,4,5), "spring", ifelse(month %in% c(6,7,8), "summer", "fall")))) %>%
+  mutate(sentiment = ifelse(sentiment == "somewhat positive", "positive", ifelse(sentiment == "positive", "positive", ifelse(sentiment == "somewhat negative", "negative", ifelse(sentiment == "negative", "negative", "neutral"))))) %>% mutate(gender = ifelse(women == 1, "women", ifelse(men == 1, "men", 0))) %>% filter(gender != 0) %>% filter(label == "social") %>% select(sentiment, seasons, gender)
+seasons_all <- ad_tar2 %>% 
+  mutate(seasons = ifelse(month %in% c(12, 1,2), "winter", ifelse(month %in% c(3,4,5), "spring", ifelse(month %in% c(6,7,8), "summer", "fall")))) %>%
+  mutate(sentiment = ifelse(sentiment == "somewhat positive", "positive", ifelse(sentiment == "positive", "positive", ifelse(sentiment == "somewhat negative", "negative", ifelse(sentiment == "negative", "negative", "neutral"))))) %>% mutate(gender = ifelse(women == 1, "women", ifelse(men == 1, "men", 0))) %>% filter(gender != 0) %>% select(sentiment, seasons, gender)
+a2 <- ggplot(seasons_social, aes(x=sentiment, fill=gender)) + geom_bar(aes(y=((..count..) / sum(..count..))*100), position = "dodge") + labs(title = "Social Ads", y="Percent %", x="Sentiment", fill="Gender") + scale_y_continuous(expand = c(0,0)) + scale_fill_manual("Gender", values=c("men"="dodgerblue3", "women"="hotpink1")) + theme_classic() 
+b2 <- ggplot(seasons_all, aes(x=sentiment, fill=gender)) + geom_bar(aes(y=((..count..) / sum(..count..))*100), position = "dodge")  + labs(title = "All Ads", y = "Percent %", x="Sentiment", fill="Gender") + scale_y_continuous(expand = c(0,0)) + scale_fill_manual("Gender", values=c("men"="dodgerblue3", "women"="hotpink1")) + theme_classic() 
+annotate_figure(
+ggarrange(a2,b2, heights = 2), top = text_grob("Comparison of Ads Targeted to Men and Women", face = "bold", size = 14))
+```
+
+
+
+<br>
+<br>
+
+
+
+### Comparing Democratic National Committe vs Top Democratic Reps and Committees
+
+Because of the Democratic primaries, there were a higher amount of ads from Democratic presidential candidates. We wanted to see if there was a wide difference between topics advertised by the Democratic presidential candidates and topics advertised by the Democratic National Committee.     
+
+<br>
+
+
+
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.height = 6, fig.width = 10}
+
+
+ad.top.democrats <- ad_tar2[grep("Democratic| Democrat for | O'Rourke| John Kerry| Clinton| Ocasio-Cortez| Kamala| Omar| Biden| Bernie| Pelosi| Andrew Yang | Buttigieg| Warren| Klobuchar| Bloomberg| Tulsi|
+                                 Bennet for America", ad_tar2$paid_for_by, ignore.case = F, perl = T), ]
+
+
+#main dems and percentage of each ad
+ad.top.democrats <- ad.top.democrats %>% filter(ad.top.democrats$paid_for_by != 'the Democratic National Committee')
+ad.top.democrats[,2] <- "Dem Reps & State Committees"
+ad.top.democrats <- ad.top.democrats %>% group_by(label, paid_for_by) %>%
+ summarize(count1 = n())
+ad.top.democrats$total1 <- sum(ad.top.democrats$count1)
+ad.top.democrats <- transform(ad.top.democrats, perct = count1 / total1)
+
+
+#ads from dem national committee and percentage of each ad 
+ad.democratnc <- ad_tar2[grep("Democratic National Committee", fixed = T, ad_tar2$paid_for_by), ]
+ad.democratnc <- ad.democratnc %>% group_by(label, paid_for_by) %>%
+ summarize(count1 = n())
+ad.democratnc$total1 <- sum(ad.democratnc$count1)
+ad.democratnc <- transform(ad.democratnc, perct = count1 / total1)
+ad.democratnc[,2] <- "Democratic National Committee"
+
+
+#combine datasets
+dem.data <- rbind(ad.top.democrats,ad.democratnc )
+dem.data[14,2] <- "Democratic National Committee" 
+
+ggplot(dem.data, aes(fill=paid_for_by, y=perct*100, x=label)) + 
+    labs(y = "Percent %", x = "Ad Category", title = "Percent of Political Ads by Topic", 
+         subtitle = "DNC compared to other Top Democrats", fill = "Paid for by:" ) + theme_bw() +
+         scale_fill_manual(values=c("Democratic National Committee"="blue2", "Dem Reps & State Committees"="deepskyblue1"), guide="legend") +  geom_bar(position="dodge", stat="identity")+ theme(axis.text.x = element_text(angle = 0)) + scale_y_continuous(expand = c(0,0),  limit = c(0, 35))
+```
+
+
+
+<br>
+<br>
+<br>
+
+### Democratic Representatives and Committee's Ads which Targeted Women:
+
+
+What political category did the Democratic Representatives and Committes show to women the most and why? We were eager to see which topics were specifically advertised to women and what was said in those topics.     
+
+<br>
+
+
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.height = 6, fig.width = 10}
+
+dem.and.women1 <- ad_tar2[grep("Democratic| Democrat for | O'Rourke| John Kerry| Clinton| Ocasio-Cortez| Kamala| Omar| Biden| Bernie| Pelosi| Andrew Yang | Buttigieg| Warren| Klobuchar| Bloomberg| Tulsi|
+                                 Bennet for America", ad_tar2$paid_for_by, ignore.case = F, perl = T), ]
+
+
+
+dem.and.women1 <- dem.and.women1 %>% filter(dem.and.women1$women == "1")
+
+dem.and.women <- dem.and.women1 %>% group_by(label) %>%
+  summarize(count1 = n())
+dem.and.women$total1 <- sum(dem.and.women$count1)
+dem.and.women <- transform(dem.and.women, perct = count1 / total1)
+
+dem.and.women <- dem.and.women %>%
+  mutate(label = fct_reorder(label, count1))
+
+ggplot(dem.and.women, aes(y=perct*100, x=label, fill = label)) + 
+    geom_bar(position="dodge", stat="identity")+ theme(axis.text.x = element_text(angle = 45)) +
+    labs(y = "Percent %", x = "", title = "DNC Committe & Representative Ads",
+         subtitle = "Category of Ads Targeting Women", fill = "Gender:" ) +
+        coord_flip() + theme_bw()+ scale_y_continuous(expand = c(0,0),  limit = c(0, 31))
+
+```
+
+
+
+<br>
+<br>
+<br>
+
+### Sentiment of Top 3 Political Categories of Democratic Ads targeting Women 
+
+We wanted an overall picture of what these specifically women-targeted ads were addressing. What was the the sentiment, words used, and message that they were attempting to communicate? The neutral, somewhat postive, and somewhat negative labels were given based on a percentage of the negative, neutral, or positive words/tone that was being expressed in the ad.     
+
+<br>
+
+
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.height = 6, fig.width = 10}
+
+dem.and.women1 <- ad_tar2[grep("Democratic| Democrat for | O'Rourke| John Kerry| Clinton| Ocasio-Cortez| Kamala| Omar| Biden| Bernie| Pelosi| Andrew Yang | Buttigieg| Warren| Klobuchar| Bloomberg| Tulsi|
+                                 Bennet for America", ad_tar2$paid_for_by, ignore.case = T, perl = T), ]
+
+
+
+dem.and.women1 <- dem.and.women1 %>% filter(dem.and.women1$women == "1")
+dem.and.women1 <- dem.and.women1 %>% filter(dem.and.women1$label == "electoral" | dem.and.women1$label== "healthcare" | dem.and.women1$label == "economic")
+
+
+dem.and.women1 <- dem.and.women1 %>% group_by(label, sentiment) %>%
+  summarize(count1 = n())
+dem.and.women1$total1 <- sum(dem.and.women1$count1)
+dem.and.women1 <- transform(dem.and.women1, perct = count1 / total1)
+
+dem.and.women1 <- dem.and.women1 %>%
+  mutate(label = fct_reorder(label, count1))
+
+ggplot(dem.and.women1, aes(fill=sentiment, y=perct*100, x=label)) + 
+    geom_bar(position="dodge", stat="identity")+ theme(axis.text.x = element_text(angle = 25)) +
+    labs(y = "Percent %", x = "Ad Category", title = "DNC and Affiliate Ads Targeting Women",
+         subtitle = "by Top 3 Categories", fill = "Sentiment" ) + scale_fill_manual(values=c("dodgerblue2","blue2","deepskyblue"), guide="legend") + theme_bw()+ scale_y_continuous(expand = c(0,0),  limit = c(0, 27))
+
+```
+
+
+<br>
+<br>
+<br>
+
+
